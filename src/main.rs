@@ -1,33 +1,41 @@
 use eframe::egui;
 use std::fmt::format;
 
-/// ===============================
-/// TRAM SIM
-/// ===============================
+/// =======================================================
+/// TRAM SIM – PROSTY EDYTOR SIECI TORÓW (GRID SYSTEM)
+/// =======================================================
 ///
-/// Prosty edytor torów oparty o siatkę.
-///
-/// Funkcje:
-/// - ruch gracza,
-/// - tryb ruchu płynnego,
-/// - tryb ruchu kratkowego,
-/// - dodawanie punktów,
+/// Projekt symuluje:
+/// - ruch na siatce (grid),
+/// - edycję punktów,
 /// - łączenie punktów liniami,
-/// - linie podążające po siatce,
-/// - wyśrodkowana kratka.
+/// - rysowanie tras po kratkach (pathfinding grid),
+/// - tryb myszki i klawiatury.
 ///
-/// Sterowanie:
-/// W A S D / strzałki  -> ruch
-/// spacja               -> zmiana trybu ruchu
-/// +                   -> dodaj punkt
-/// Enter lub /         -> wybór punktów i tworzenie linii
+/// -------------------------------------------------------
+/// STEROWANIE:
+/// -------------------------------------------------------
 ///
-/// Tryby ruchu:
-/// - płynny:
-///     przytrzymanie klawisza = ciągły ruch
+/// KEYBOARD:
+/// W A S D / strzałki → ruch
+/// SPACE             → tryb ruchu (płynny / kratkowy)
+/// ENTER / /         → tryb łączenia punktów
+/// M                 → tryb myszki
+/// +                 → dodanie punktu
 ///
-/// - kratkowy:
-///     jedno kliknięcie = jeden ruch o kratkę
+/// MOUSE:
+/// LPM               → dodaj punkt
+/// PPM               → tryb łączenia punktów
+///
+/// -------------------------------------------------------
+/// TRYBY:
+/// -------------------------------------------------------
+///
+/// ruch płynny  → ciągły ruch
+/// ruch kratkowy → skoki o 1 kratkę
+/// myszka       → sterowanie kursorem po gridzie
+///
+/// =======================================================
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions::default();
@@ -35,48 +43,31 @@ fn main() -> eframe::Result<()> {
     eframe::run_native("Tram Sim", options, Box::new(|_cc| Box::new(MyApp::new())))
 }
 
-/// ===============================
-/// GŁÓWNY STAN APLIKACJI
-/// ===============================
+/// =======================================================
+/// KONFIGURACJA ŚWIATA (ŁATWA ROZBUDOWA)
+/// =======================================================
+
+const GRID_SCALE: f32 = 40.0; // 🔥 2x większa kratka (było 20.0)
+
+/// =======================================================
+/// STAN APLIKACJI
+/// =======================================================
+
 struct MyApp {
-    /// Aktualna pozycja kursora/gracza na siatce
     x: f32,
     y: f32,
 
-    /// Lista wszystkich punktów
-    ///
-    /// Każdy punkt posiada współrzędne:
-    /// (x, y)
     punkty: Vec<(f32, f32)>,
-
-    /// Lista połączeń pomiędzy punktami
-    ///
-    /// Przykład:
-    /// (0, 2)
-    ///
-    /// oznacza połączenie:
-    /// punkt 0 -> punkt 2
     linie: Vec<(usize, usize)>,
 
-    /// Aktualnie wybrany punkt
-    ///
-    /// Potrzebny podczas tworzenia linii.
     wybrany: Option<usize>,
-
-    /// Czy aktywny jest tryb tworzenia linii
     tryb_linii: bool,
 
-    /// Tryb ruchu:
-    ///
-    /// false -> płynny
-    /// true  -> kratkowy
     ruch_kratkowy: bool,
-    //tryb myszki
     tryb_myszki: bool,
 }
 
 impl MyApp {
-    /// Tworzy nową aplikację
     fn new() -> Self {
         Self {
             x: 0.0,
@@ -87,311 +78,255 @@ impl MyApp {
 
             wybrany: None,
             tryb_linii: false,
-            tryb_myszki: false,
+
             ruch_kratkowy: false,
+            tryb_myszki: false,
         }
     }
 }
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // =====================================
+        // ===================================================
         // ZMIANA TRYBU RUCHU
-        // =====================================
-        //
-        // spacja przełącza:
-        // płynny <-> kratkowy
-        //
+        // ===================================================
 
         if ctx.input(|i| i.key_pressed(egui::Key::Space)) {
             self.ruch_kratkowy = !self.ruch_kratkowy;
         }
 
-        // =====================================
-        // SYSTEM RUCHU
-        // =====================================
+        // ===================================================
+        // RUCH POSTACI (POPRAWIONY)
+        // ===================================================
+        //
+        // - ruch płynny: key_down
+        // - ruch klatkowy: key_pressed (1 krok na kliknięcie)
+        // ===================================================
 
-        if self.ruch_kratkowy {
-            // -----------------------------
-            // RUCH KRATKOWY
-            // -----------------------------
-            //
-            // Jedno kliknięcie = jeden ruch
-            //
+        let step = if self.ruch_kratkowy { 1.0 } else { 2.0 };
 
-            if ctx.input(|i| i.key_pressed(egui::Key::A) || i.key_pressed(egui::Key::ArrowLeft)) {
-                self.x -= 1.0;
-            }
-
-            if ctx.input(|i| i.key_pressed(egui::Key::D) || i.key_pressed(egui::Key::ArrowRight)) {
-                self.x += 1.0;
-            }
-
-            if ctx.input(|i| i.key_pressed(egui::Key::W) || i.key_pressed(egui::Key::ArrowUp)) {
-                self.y += 1.0;
-            }
-
-            if ctx.input(|i| i.key_pressed(egui::Key::S) || i.key_pressed(egui::Key::ArrowDown)) {
-                self.y -= 1.0;
-            }
-        } else {
-            // -----------------------------
-            // RUCH PŁYNNY
-            // -----------------------------
-            //
-            // Przytrzymanie = ciągły ruch
-            //
-
-            if ctx.input(|i| i.key_down(egui::Key::A) || i.key_down(egui::Key::ArrowLeft)) {
-                self.x -= 2.0;
-            }
-
-            if ctx.input(|i| i.key_down(egui::Key::D) || i.key_down(egui::Key::ArrowRight)) {
-                self.x += 2.0;
-            }
-
-            if ctx.input(|i| i.key_down(egui::Key::W) || i.key_down(egui::Key::ArrowUp)) {
-                self.y += 2.0;
-            }
-
-            if ctx.input(|i| i.key_down(egui::Key::S) || i.key_down(egui::Key::ArrowDown)) {
-                self.y -= 2.0;
+        // LEWO
+        if ctx.input(|i| i.key_down(egui::Key::A) || i.key_down(egui::Key::ArrowLeft)) {
+            if self.ruch_kratkowy {
+                if ctx.input(|i| i.key_pressed(egui::Key::A) || i.key_pressed(egui::Key::ArrowLeft))
+                {
+                    self.x -= step;
+                }
+            } else {
+                self.x -= step;
             }
         }
 
-        // =====================================
-        // GUI
-        // =====================================
+        // PRAWO
+        if ctx.input(|i| i.key_down(egui::Key::D) || i.key_down(egui::Key::ArrowRight)) {
+            if self.ruch_kratkowy {
+                if ctx
+                    .input(|i| i.key_pressed(egui::Key::D) || i.key_pressed(egui::Key::ArrowRight))
+                {
+                    self.x += step;
+                }
+            } else {
+                self.x += step;
+            }
+        }
+
+        // GÓRA
+        if ctx.input(|i| i.key_down(egui::Key::W) || i.key_down(egui::Key::ArrowUp)) {
+            if self.ruch_kratkowy {
+                if ctx.input(|i| i.key_pressed(egui::Key::W) || i.key_pressed(egui::Key::ArrowUp)) {
+                    self.y += step;
+                }
+            } else {
+                self.y += step;
+            }
+        }
+
+        // DÓŁ
+        if ctx.input(|i| i.key_down(egui::Key::S) || i.key_down(egui::Key::ArrowDown)) {
+            if self.ruch_kratkowy {
+                if ctx.input(|i| i.key_pressed(egui::Key::S) || i.key_pressed(egui::Key::ArrowDown))
+                {
+                    self.y -= step;
+                }
+            } else {
+                self.y -= step;
+            }
+        }
+        // ===================================================
+        // UI
+        // ===================================================
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Symulator tramwaju");
 
-            // ---------------------------------
+            // ---------------------------------------------------
             // PRZYCISKI
-            // ---------------------------------
+            // ---------------------------------------------------
 
             ui.horizontal(|ui| {
-                // Dodanie punktu
                 if ui.button("+").clicked() {
                     self.punkty.push((self.x, self.y));
                 }
 
-                // Informacja o trybie ruchu
-                if self.ruch_kratkowy {
-                    ui.label("Tryb: kratkowy");
-                } else {
-                    ui.label("Tryb: płynny");
-                }
-
-                //tryb myszki
-
                 if ui.button("M").clicked() {
                     self.tryb_myszki = !self.tryb_myszki;
-                    self.y = 0.0;
-                    self.x = 0.0;
                 }
+
+                ui.label(if self.ruch_kratkowy {
+                    "TRYB: kratkowy"
+                } else {
+                    "TRYB: płynny"
+                });
             });
 
-            // ---------------------------------
-            // POZYCJA
-            // ---------------------------------
+            ui.label(format!("X: {:.1}  Y: {:.1}", self.x, self.y));
 
-            ui.label(format!("Pozycja X: {} Y: {}", self.x, self.y));
-
-            // ---------------------------------
+            // ---------------------------------------------------
             // OBSZAR RYSOWANIA
-            // ---------------------------------
+            // ---------------------------------------------------
 
             let (rect, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::hover());
 
-            // Rozmiar jednej kratki
-            let skala = 20.0;
+            let center = rect.rect.center();
 
-            // Środek ekranu = punkt (0,0)
-            let centrum = rect.rect.center();
-
-            // =====================================
-            // TRYB MYSZKI
-            // =====================================
-            //
-            // Biały punkt podąża za myszką po kratkach.
-            //
+            // ===================================================
+            // TRYB MYSZKI (GRID SNAP)
+            // ===================================================
 
             if self.tryb_myszki {
-                if let Some(mouse_pos) = ctx.pointer_hover_pos() {
-                    // pozycja względem środka
-                    let gx = (mouse_pos.x - centrum.x) / skala;
-                    let gy = -(mouse_pos.y - centrum.y) / skala;
+                if let Some(mpos) = ctx.pointer_hover_pos() {
+                    let gx = (mpos.x - center.x) / GRID_SCALE;
+                    let gy = -(mpos.y - center.y) / GRID_SCALE;
 
-                    // zaokrąglenie do kratki
                     self.x = gx.round();
                     self.y = gy.round();
                 }
 
-                // -----------------------------
-                // LEWY PRZYCISK MYSZY
-                // dodaje punkt
-                // -----------------------------
-
                 if ctx.input(|i| i.pointer.primary_clicked()) {
                     self.punkty.push((self.x, self.y));
                 }
-
-                // -----------------------------
-                // PRAWY PRZYCISK MYSZY
-                // działa jak Enter
-                // -----------------------------
 
                 if ctx.input(|i| i.pointer.secondary_clicked()) {
                     self.tryb_linii = true;
                 }
             }
 
-            // =====================================
-            // SYSTEM ŁĄCZENIA PUNKTÓW
-            // =====================================
-            //
-            // Enter lub /
-            // wybiera punkty i tworzy linie
-            //
+            // ===================================================
+            // TRYB ŁĄCZENIA PUNKTÓW
+            // ===================================================
 
             if ctx.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Slash)) {
                 self.tryb_linii = true;
             }
 
             if self.tryb_linii {
-                for (index, (px, py)) in self.punkty.iter().enumerate() {
-                    // Czy gracz stoi na punkcie
+                for (i, (px, py)) in self.punkty.iter().enumerate() {
                     if (self.x - px).abs() < 0.1 && (self.y - py).abs() < 0.1 {
-                        // Drugi punkt
                         if let Some(start) = self.wybrany {
-                            if start != index {
-                                self.linie.push((start, index));
+                            if start != i {
+                                self.linie.push((start, i));
                             }
-
                             self.wybrany = None;
                             self.tryb_linii = false;
-                        }
-                        // Pierwszy punkt
-                        else {
-                            self.wybrany = Some(index);
+                        } else {
+                            self.wybrany = Some(i);
                             self.tryb_linii = false;
                         }
                     }
                 }
             }
 
-            // =====================================
-            // KRATKA TŁA
-            // =====================================
+            // ===================================================
+            // KRATKA (TŁO)
+            // ===================================================
 
-            let kolor = egui::Color32::DARK_GRAY;
+            let grid_color = egui::Color32::DARK_GRAY;
 
-            // pionowe linie
             for i in -100..=100 {
-                let x = centrum.x + i as f32 * skala;
+                let x = center.x + i as f32 * GRID_SCALE;
 
                 painter.line_segment(
                     [
                         egui::pos2(x, rect.rect.top()),
                         egui::pos2(x, rect.rect.bottom()),
                     ],
-                    egui::Stroke::new(2.0, kolor),
+                    egui::Stroke::new(2.0, grid_color),
                 );
             }
 
-            // poziome linie
             for j in -100..=100 {
-                let y = centrum.y + j as f32 * skala;
+                let y = center.y + j as f32 * GRID_SCALE;
 
                 painter.line_segment(
                     [
                         egui::pos2(rect.rect.left(), y),
                         egui::pos2(rect.rect.right(), y),
                     ],
-                    egui::Stroke::new(2.0, kolor),
+                    egui::Stroke::new(2.0, grid_color),
                 );
             }
 
-            // =====================================
-            // RYSOWANIE LINII
-            // =====================================
-            //
-            // Linie:
-            // - idą po kratkach,
-            // - mogą używać przekątnych,
-            // - wybierają najkrótszą drogę,
-            // - działają matematycznie,
-            // - NIE bazują na kolorach.
-            //
+            // ===================================================
+            // LINIE (GRID PATHFINDING)
+            // ===================================================
 
             for (a, b) in &self.linie {
                 let (mut x, mut y) = self.punkty[*a];
                 let (tx, ty) = self.punkty[*b];
 
                 while (x - tx).abs() > 0.1 || (y - ty).abs() > 0.1 {
-                    let start = egui::pos2(centrum.x + x * skala, centrum.y - y * skala);
+                    let start = egui::pos2(center.x + x * GRID_SCALE, center.y - y * GRID_SCALE);
 
-                    // różnica pozycji
                     let dx = tx - x;
                     let dy = ty - y;
-
-                    // -------------------------
-                    // RUCH PO PRZEKĄTNEJ
-                    // -------------------------
 
                     if dx.abs() >= 1.0 && dy.abs() >= 1.0 {
                         x += dx.signum();
                         y += dy.signum();
-                    }
-                    // -------------------------
-                    // RUCH POZIOMY
-                    // -------------------------
-                    else if dx.abs() > dy.abs() {
+                    } else if dx.abs() > dy.abs() {
                         x += dx.signum();
-                    }
-                    // -------------------------
-                    // RUCH PIONOWY
-                    // -------------------------
-                    else {
+                    } else {
                         y += dy.signum();
                     }
 
-                    let koniec = egui::pos2(centrum.x + x * skala, centrum.y - y * skala);
+                    let end = egui::pos2(center.x + x * GRID_SCALE, center.y - y * GRID_SCALE);
 
-                    painter
-                        .line_segment([start, koniec], egui::Stroke::new(4.0, egui::Color32::BLUE));
+                    painter.line_segment([start, end], egui::Stroke::new(4.0, egui::Color32::BLUE));
                 }
             }
 
-            // =====================================
-            // RYSOWANIE PUNKTÓW
-            // =====================================
+            // ===================================================
+            // PUNKTY
+            // ===================================================
 
-            for (index, (px, py)) in self.punkty.iter().enumerate() {
-                let kolor = if Some(index) == self.wybrany {
+            for (i, (px, py)) in self.punkty.iter().enumerate() {
+                let color = if Some(i) == self.wybrany {
                     egui::Color32::RED
                 } else {
                     egui::Color32::BLUE
                 };
 
                 painter.circle_filled(
-                    egui::pos2(centrum.x + px * skala, centrum.y - py * skala),
+                    egui::pos2(center.x + px * GRID_SCALE, center.y - py * GRID_SCALE),
                     10.0,
-                    kolor,
+                    color,
                 );
             }
 
-            // =====================================
+            // ===================================================
             // GRACZ
-            // =====================================
+            // ===================================================
 
-            let pozycja = egui::pos2(centrum.x + self.x * skala, centrum.y - self.y * skala);
-
-            painter.circle_filled(pozycja, 8.0, egui::Color32::WHITE);
+            painter.circle_filled(
+                egui::pos2(
+                    center.x + self.x * GRID_SCALE,
+                    center.y - self.y * GRID_SCALE,
+                ),
+                8.0,
+                egui::Color32::WHITE,
+            );
         });
 
-        // Odświeżanie ekranu
         ctx.request_repaint();
     }
 }
