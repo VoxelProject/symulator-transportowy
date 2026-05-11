@@ -93,6 +93,9 @@ impl eframe::App for MyApp {
 
         if ctx.input(|i| i.key_pressed(egui::Key::Space)) {
             self.ruch_kratkowy = !self.ruch_kratkowy;
+            //powrót do środka
+            self.x = 0.0;
+            self.y = 0.0;
         }
 
         // ===================================================
