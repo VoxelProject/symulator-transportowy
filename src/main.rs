@@ -18,7 +18,7 @@ use std::fmt::format;
 ///
 /// Sterowanie:
 /// W A S D / strzałki  -> ruch
-/// Shift               -> zmiana trybu ruchu
+/// spacja               -> zmiana trybu ruchu
 /// +                   -> dodaj punkt
 /// Enter lub /         -> wybór punktów i tworzenie linii
 ///
@@ -71,6 +71,8 @@ struct MyApp {
     /// false -> płynny
     /// true  -> kratkowy
     ruch_kratkowy: bool,
+    //tryb myszki
+    tryb_myszki: bool,
 }
 
 impl MyApp {
@@ -85,7 +87,7 @@ impl MyApp {
 
             wybrany: None,
             tryb_linii: false,
-
+            tryb_myszki: false,
             ruch_kratkowy: false,
         }
     }
@@ -97,7 +99,7 @@ impl eframe::App for MyApp {
         // ZMIANA TRYBU RUCHU
         // =====================================
         //
-        // Shift przełącza:
+        // spacja przełącza:
         // płynny <-> kratkowy
         //
 
@@ -180,6 +182,14 @@ impl eframe::App for MyApp {
                 } else {
                     ui.label("Tryb: płynny");
                 }
+
+                //tryb myszki
+
+                if ui.button("M").clicked() {
+                    self.tryb_myszki = !self.tryb_myszki;
+                    self.y = 0.0;
+                    self.x = 0.0;
+                }
             });
 
             // ---------------------------------
@@ -199,6 +209,43 @@ impl eframe::App for MyApp {
 
             // Środek ekranu = punkt (0,0)
             let centrum = rect.rect.center();
+
+            // =====================================
+            // TRYB MYSZKI
+            // =====================================
+            //
+            // Biały punkt podąża za myszką po kratkach.
+            //
+
+            if self.tryb_myszki {
+                if let Some(mouse_pos) = ctx.pointer_hover_pos() {
+                    // pozycja względem środka
+                    let gx = (mouse_pos.x - centrum.x) / skala;
+                    let gy = -(mouse_pos.y - centrum.y) / skala;
+
+                    // zaokrąglenie do kratki
+                    self.x = gx.round();
+                    self.y = gy.round();
+                }
+
+                // -----------------------------
+                // LEWY PRZYCISK MYSZY
+                // dodaje punkt
+                // -----------------------------
+
+                if ctx.input(|i| i.pointer.primary_clicked()) {
+                    self.punkty.push((self.x, self.y));
+                }
+
+                // -----------------------------
+                // PRAWY PRZYCISK MYSZY
+                // działa jak Enter
+                // -----------------------------
+
+                if ctx.input(|i| i.pointer.secondary_clicked()) {
+                    self.tryb_linii = true;
+                }
+            }
 
             // =====================================
             // SYSTEM ŁĄCZENIA PUNKTÓW
