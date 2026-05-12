@@ -1,5 +1,6 @@
 use eframe::egui;
-use std::fmt::format;
+//use std::fmt::format;
+use serde::{Deserialize, Serialize};
 
 /// ======================================================
 /// TRAM SIM – PROSTY EDYTOR SIECI TORÓW (GRID SYSTEM)
@@ -45,11 +46,30 @@ fn main() -> eframe::Result<()> {
 /// ======================================================
 /// STAN APLIKACJI
 /// ======================================================
+
+#[derive(Clone, Serialize, Deserialize)]
+struct Node {
+    id: usize,
+    x: f32,
+    y: f32,
+    meta: Option<String>,
+}
+const MAPA_STARTOWA_JSON: &str = r#"
+[
+  { "id": 0, "x": -7, "y": 6, "meta": null },
+  { "id": 1, "x": -4, "y": -0, "meta": null },
+  { "id": 2, "x": 5, "y": 3, "meta": null },
+  { "id": 3, "x": -3, "y": -2, "meta": null },
+  { "id": 4, "x": 2, "y": 4, "meta": null },
+  { "id": 5, "x": -2, "y": -0, "meta": null }
+]
+"#;
 struct MyApp {
     x: f32,
     y: f32,
 
-    punkty: Vec<(f32, f32)>,
+    punkty: Vec<Node>,
+    next_id: usize,
     linie: Vec<(usize, usize)>,
 
     wybrany: Option<usize>,
@@ -68,7 +88,8 @@ impl MyApp {
             x: 0.0,
             y: 0.0,
 
-            punkty: Vec::new(),
+            punkty: Self::load_from_json(MAPA_STARTOWA_JSON),
+            next_id: 0,
             linie: Vec::new(),
 
             wybrany: None,
@@ -81,7 +102,38 @@ impl MyApp {
             panel_width: 300.0,
         }
     }
+    fn load_from_json(json: &str) -> Vec<Node> {
+        serde_json::from_str(json).unwrap_or_else(|_| Vec::new())
+    }
+    fn add_point(&mut self, x: f32, y: f32) {
+        if self.punkty.iter().any(|n| n.x == x && n.y == y) {
+            return;
+        }
+        let node = Node {
+            id: self.next_id,
+            x,
+            y,
+            meta: None,
+        };
+
+        self.next_id += 1;
+
+        self.on_point_added(&node);
+
+        self.punkty.push(node);
+    }
+    fn on_point_added(&mut self, node: &Node) {
+        println!(
+            "Dodano punkt -> id: {}, x: {}, y: {}",
+            node.id, node.x, node.y
+        );
+    }
+    fn export_json(&self) -> String {
+        serde_json::to_string_pretty(&self.punkty).unwrap()
+    }
 }
+
+//tu chciałbym te pamięć punktów
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -201,9 +253,9 @@ impl eframe::App for MyApp {
                     .rect_filled(bottom_rect, 8.0, egui::Color32::from_gray(35));
             });
 
-        // ======================================================
+        // ==============================================
         // GŁÓWNY OBSZAR RYSOWANIA
-        // ======================================================
+        // ==============================================
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Symulator tramwaju");
@@ -213,8 +265,8 @@ impl eframe::App for MyApp {
             // ------------------------------------------
 
             ui.horizontal(|ui| {
-                if ui.button("+").clicked() {
-                    self.punkty.push((self.x, self.y));
+                if ui.button("D").clicked() {
+                    self.add_point(self.x, self.y);
                 }
 
                 if ui.button("M").clicked() {
@@ -238,6 +290,10 @@ impl eframe::App for MyApp {
 
                 if ui.button("-").clicked() {
                     self.grid_scale = (self.grid_scale - 5.0).max(5.0);
+                }
+                if ui.button("Z").clicked() {
+                    println!("=== JSON MAPA ===");
+                    println!("{}", self.export_json());
                 }
             });
 
@@ -269,7 +325,7 @@ impl eframe::App for MyApp {
                 }
 
                 if ctx.input(|i| i.pointer.primary_clicked()) {
-                    self.punkty.push((self.x, self.y));
+                    self.add_point(self.x, self.y);
                 }
 
                 if ctx.input(|i| i.pointer.secondary_clicked()) {
@@ -286,16 +342,16 @@ impl eframe::App for MyApp {
             }
 
             if self.tryb_linii {
-                for (i, (px, py)) in self.punkty.iter().enumerate() {
-                    if (self.x - px).abs() < 0.1 && (self.y - py).abs() < 0.1 {
+                for node in &self.punkty {
+                    if (self.x - node.x).abs() < 0.1 && (self.y - node.y).abs() < 0.1 {
                         if let Some(start) = self.wybrany {
-                            if start != i {
-                                self.linie.push((start, i));
+                            if start != node.id {
+                                self.linie.push((start, node.id));
                             }
                             self.wybrany = None;
                             self.tryb_linii = false;
                         } else {
-                            self.wybrany = Some(i);
+                            self.wybrany = Some(node.id);
                             self.tryb_linii = false;
                         }
                     }
@@ -337,8 +393,11 @@ impl eframe::App for MyApp {
             // ==========================================
 
             for (a, b) in &self.linie {
-                let (mut x, mut y) = self.punkty[*a];
-                let (tx, ty) = self.punkty[*b];
+                let mut x = self.punkty[*a].x;
+                let mut y = self.punkty[*a].y;
+
+                let tx = self.punkty[*b].x;
+                let ty = self.punkty[*b].y;
 
                 while (x - tx).abs() > 0.1 || (y - ty).abs() > 0.1 {
                     let start = egui::pos2(
@@ -374,8 +433,8 @@ impl eframe::App for MyApp {
             // PUNKTY
             // ==========================================
 
-            for (i, (px, py)) in self.punkty.iter().enumerate() {
-                let color = if Some(i) == self.wybrany {
+            for node in &self.punkty {
+                let color = if self.wybrany == Some(node.id) {
                     egui::Color32::RED
                 } else {
                     egui::Color32::BLUE
@@ -383,8 +442,8 @@ impl eframe::App for MyApp {
 
                 painter.circle_filled(
                     egui::pos2(
-                        center.x + px * self.grid_scale,
-                        center.y - py * self.grid_scale,
+                        center.x + node.x * self.grid_scale,
+                        center.y - node.y * self.grid_scale,
                     ),
                     point_radius,
                     color,
