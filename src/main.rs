@@ -59,6 +59,7 @@ struct MyApp {
     tryb_myszki: bool,
 
     grid_scale: f32,
+    panel_width: f32,
 }
 
 impl MyApp {
@@ -77,6 +78,7 @@ impl MyApp {
             tryb_myszki: false,
 
             grid_scale: 40.0,
+            panel_width: 300.0,
         }
     }
 }
@@ -151,6 +153,57 @@ impl eframe::App for MyApp {
         // ==============================================
         // UI
         // ==============================================
+        egui::SidePanel::right("right_panel")
+            .resizable(false)
+            .exact_width(self.panel_width)
+            .frame(
+                egui::Frame::side_top_panel(&ctx.style())
+                    .inner_margin(0.0)
+                    .outer_margin(0.0),
+            )
+            .show(ctx, |ui| {
+                // ======================================
+                // TŁO PANELU = domyślne tło aplikacji
+                // ======================================
+                let panel_rect = ui.available_rect_before_wrap();
+
+                let margin = 10.0;
+                let spacing = margin;
+
+                // obszar po marginesach
+                let content_rect = panel_rect.shrink(margin);
+
+                // wysokość sekcji
+                let section_height = (content_rect.height() - spacing) / 2.0;
+
+                // ======================================
+                // GÓRNA SEKCJA
+                // ======================================
+
+                let top_rect = egui::Rect::from_min_size(
+                    content_rect.min,
+                    egui::vec2(content_rect.width(), section_height),
+                );
+
+                ui.painter()
+                    .rect_filled(top_rect, 8.0, egui::Color32::from_gray(45));
+
+                // ======================================
+                // DOLNA SEKCJA
+                // ======================================
+
+                let bottom_rect = egui::Rect::from_min_size(
+                    egui::pos2(content_rect.min.x, top_rect.max.y + spacing),
+                    egui::vec2(content_rect.width(), section_height),
+                );
+
+                ui.painter()
+                    .rect_filled(bottom_rect, 8.0, egui::Color32::from_gray(35));
+            });
+
+        // ======================================================
+        // GŁÓWNY OBSZAR RYSOWANIA
+        // ======================================================
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Symulator tramwaju");
