@@ -70,19 +70,13 @@ struct Edge {
     from: usize,
     to: usize,
 
-    numer: Option<i32>, // jeśli brak → nieprzypisane
+    id: usize,
     meta: Option<String>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct SaveData {
     punkty: Vec<Node>,
-    linie: LiniaPakiet,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-struct LiniaPakiet {
-    przypisane: std::collections::HashMap<i32, Vec<Edge>>,
-    nieprzypisane: Vec<Edge>,
+    linie: Vec<Edge>,
 }
 const SAVE_FILE: &str = "mapa.json";
 struct MyApp {
@@ -90,8 +84,10 @@ struct MyApp {
     y: f32,
 
     punkty: Vec<Node>,
-    next_id: usize,
     linie: Vec<Edge>,
+
+    next_id: usize,      // ID punktów
+    edge_next_id: usize, // ID linii (KAŻDA LINIA UNIKALNA)
 
     wybrany: Option<usize>,
 
@@ -107,30 +103,21 @@ struct MyApp {
 impl MyApp {
     fn new() -> Self {
         let data = Self::load_file();
-        let nodes = data.punkty;
-        let linie = data.linie;
 
-        let next_id = nodes.iter().map(|n| n.id).max().unwrap_or(0) + 1;
+        let next_id = data.punkty.iter().map(|n| n.id).max().unwrap_or(0) + 1;
+        let edge_next_id = data.linie.iter().map(|e| e.id).max().unwrap_or(0) + 1;
 
         Self {
             x: 0.0,
             y: 0.0,
 
-            punkty: nodes.into_iter().filter(|n| n.node_type == 1).collect(),
+            punkty: data.punkty,
+            linie: data.linie,
 
             next_id,
-
-            linie: {
-                let mut all = Vec::new();
-                for (_, v) in linie.przypisane {
-                    all.extend(v);
-                }
-                all.extend(linie.nieprzypisane);
-                all
-            },
+            edge_next_id,
 
             wybrany: None,
-
             ruch_kratkowy: false,
             tryb_myszki: false,
             show_import_dialog: false,
@@ -176,10 +163,13 @@ impl MyApp {
             self.linie.push(Edge {
                 from: start,
                 to: id,
-                numer: None,
+
+                // 🔥 KAŻDA LINIA MA SWOJE UNIKALNE ID
+                id: self.edge_next_id,
                 meta: None,
             });
 
+            self.edge_next_id += 1;
             self.wybrany = None;
         } else {
             self.wybrany = Some(id);
@@ -215,22 +205,16 @@ impl MyApp {
         if let Ok(content) = fs::read_to_string(SAVE_FILE) {
             serde_json::from_str(&content).unwrap_or(SaveData {
                 punkty: Vec::new(),
-                linie: LiniaPakiet {
-                    przypisane: std::collections::HashMap::new(),
-                    nieprzypisane: Vec::new(),
-                },
+                linie: Vec::new(),
             })
         } else {
             SaveData {
                 punkty: Vec::new(),
-                linie: LiniaPakiet {
-                    przypisane: std::collections::HashMap::new(),
-                    nieprzypisane: Vec::new(),
-                },
+                linie: Vec::new(),
             }
         }
     }
-    
+
     fn add_point(&mut self, x: f32, y: f32) {
         const EPS: f32 = 0.001;
         if self
@@ -254,54 +238,28 @@ impl MyApp {
 
         self.next_id += 1;
 
-        self.on_point_added(&node);
-
         self.punkty.push(node);
     }
-    fn on_point_added(&mut self, node: &Node) {
-        println!(
-            "Dodano punkt -> id: {}, x: {}, y: {}",
-            node.id, node.x, node.y
-        );
-    }
     fn export_json(&self) -> String {
-        let mut przypisane: std::collections::HashMap<i32, Vec<Edge>> =
-            std::collections::HashMap::new();
-
-        let mut nieprzypisane: Vec<Edge> = Vec::new();
-
-        for e in &self.linie {
-            if let Some(num) = e.numer {
-                przypisane.entry(num).or_default().push(e.clone());
-            } else {
-                nieprzypisane.push(e.clone());
-            }
-        }
-
+        // Tworzymy czystą strukturę do zapisu
         let data = SaveData {
             punkty: self.punkty.clone(),
-            linie: LiniaPakiet {
-                przypisane,
-                nieprzypisane,
-            },
+            linie: self.linie.clone(),
         };
 
+        // Zamiana Rust -> JSON
         serde_json::to_string_pretty(&data).unwrap()
     }
     fn import_json(&mut self, json: &str) {
         if let Ok(data) = serde_json::from_str::<SaveData>(json) {
             self.punkty = data.punkty;
+            self.linie = data.linie;
 
-            self.linie.clear();
-
-            for (_, vec) in &data.linie.przypisane {
-                self.linie.extend(vec.clone());
-            }
-
-            self.linie.extend(data.linie.nieprzypisane);
+            // aktualizacja ID żeby nie było duplikatów
+            self.next_id = self.punkty.iter().map(|n| n.id).max().unwrap_or(0) + 1;
+            self.edge_next_id = self.linie.iter().map(|e| e.id).max().unwrap_or(0) + 1;
         }
     }
-
 }
 
 impl eframe::App for MyApp {
@@ -559,9 +517,12 @@ impl eframe::App for MyApp {
             // OBSZAR RYSOWANIA
             // ------------------------------------------
 
-            let (rect, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::hover());
+            let (rect, response) =
+                ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
 
-            let center = rect.rect.center();
+            let painter = ui.painter_at(rect);
+
+            let center = rect.center();
 
             let line_width = self.grid_scale * 0.10;
             let point_radius = self.grid_scale * 0.25;
@@ -581,12 +542,12 @@ impl eframe::App for MyApp {
                 }
 
                 // LPM -> tworzenie punktu
-                if ctx.input(|i| i.pointer.primary_clicked()) {
+                if response.clicked() {
                     self.add_point(self.x, self.y);
                 }
 
                 // PPM -> zaznaczanie / linie
-                if ctx.input(|i| i.pointer.secondary_clicked()) {
+                if response.secondary_clicked() {
                     self.handle_selection();
                 }
             }
@@ -627,10 +588,7 @@ impl eframe::App for MyApp {
                 let x = center.x + i as f32 * self.grid_scale;
 
                 painter.line_segment(
-                    [
-                        egui::pos2(x, rect.rect.top()),
-                        egui::pos2(x, rect.rect.bottom()),
-                    ],
+                    [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
                     egui::Stroke::new(line_width * 0.5, grid_color),
                 );
             }
@@ -639,10 +597,7 @@ impl eframe::App for MyApp {
                 let y = center.y + j as f32 * self.grid_scale;
 
                 painter.line_segment(
-                    [
-                        egui::pos2(rect.rect.left(), y),
-                        egui::pos2(rect.rect.right(), y),
-                    ],
+                    [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
                     egui::Stroke::new(line_width * 0.5, grid_color),
                 );
             }
