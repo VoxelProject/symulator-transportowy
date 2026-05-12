@@ -84,16 +84,6 @@ struct LiniaPakiet {
     przypisane: std::collections::HashMap<i32, Vec<Edge>>,
     nieprzypisane: Vec<Edge>,
 }
-// const MAPA_STARTOWA_JSON: &str = r#"
-// [
-//   { "id": 0, "x": -7, "y": 6, "meta": null },
-//   { "id": 1, "x": -4, "y": -0, "meta": null },
-//   { "id": 2, "x": 5, "y": 3, "meta": null },
-//   { "id": 3, "x": -3, "y": -2, "meta": null },
-//   { "id": 4, "x": 2, "y": 4, "meta": null },
-//   { "id": 5, "x": -2, "y": -0, "meta": null }
-// ]
-// "#;
 const SAVE_FILE: &str = "mapa.json";
 struct MyApp {
     x: f32,
@@ -313,8 +303,6 @@ impl MyApp {
     }
 
 }
-
-//tu chciałbym te pamięć punktów
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
