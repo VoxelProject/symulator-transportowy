@@ -42,12 +42,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native("Tram Sim", options, Box::new(|_cc| Box::new(MyApp::new())))
 }
 
-// ======================================================
-// KONFIGURACJA ŚWIATA (ŁATWA ROZBUDOWA)
-// ======================================================
-
-const GRID_SCALE: f32 = 40.0; // 🔥 2x większa kratka (było 20.0)
-
 /// ======================================================
 /// STAN APLIKACJI
 /// ======================================================
@@ -63,6 +57,8 @@ struct MyApp {
 
     ruch_kratkowy: bool,
     tryb_myszki: bool,
+
+    grid_scale: f32,
 }
 
 impl MyApp {
@@ -79,6 +75,8 @@ impl MyApp {
 
             ruch_kratkowy: false,
             tryb_myszki: false,
+
+            grid_scale: 40.0,
         }
     }
 }
@@ -91,9 +89,6 @@ impl eframe::App for MyApp {
 
         if ctx.input(|i| i.key_pressed(egui::Key::Space)) {
             self.ruch_kratkowy = !self.ruch_kratkowy;
-            //powrót do środka
-            self.x = 0.0;
-            self.y = 0.0;
         }
 
         // ==============================================
@@ -171,6 +166,12 @@ impl eframe::App for MyApp {
 
                 if ui.button("M").clicked() {
                     self.tryb_myszki = !self.tryb_myszki;
+
+                    // po wyjściu z trybu myszki wróć do środka
+                    if !self.tryb_myszki {
+                        self.x = 0.0;
+                        self.y = 0.0;
+                    }
                 }
 
                 ui.label(if self.ruch_kratkowy {
@@ -178,6 +179,13 @@ impl eframe::App for MyApp {
                 } else {
                     "TRYB: płynny"
                 });
+                if ui.button("+").clicked() {
+                    self.grid_scale += 5.0;
+                }
+
+                if ui.button("-").clicked() {
+                    self.grid_scale = (self.grid_scale - 5.0).max(5.0);
+                }
             });
 
             ui.label(format!("X: {:.1}  Y: {:.1}", self.x, self.y));
@@ -190,14 +198,18 @@ impl eframe::App for MyApp {
 
             let center = rect.rect.center();
 
+            let line_width = self.grid_scale * 0.10;
+            let point_radius = self.grid_scale * 0.25;
+            let player_radius = self.grid_scale * 0.20;
+
             // ==========================================
             // TRYB MYSZKI (GRID SNAP)
             // ==========================================
 
             if self.tryb_myszki {
                 if let Some(mpos) = ctx.pointer_hover_pos() {
-                    let gx = (mpos.x - center.x) / GRID_SCALE;
-                    let gy = -(mpos.y - center.y) / GRID_SCALE;
+                    let gx = (mpos.x - center.x) / self.grid_scale;
+                    let gy = -(mpos.y - center.y) / self.grid_scale;
 
                     self.x = gx.round();
                     self.y = gy.round();
@@ -244,26 +256,26 @@ impl eframe::App for MyApp {
             let grid_color = egui::Color32::DARK_GRAY;
 
             for i in -100..=100 {
-                let x = center.x + i as f32 * GRID_SCALE;
+                let x = center.x + i as f32 * self.grid_scale;
 
                 painter.line_segment(
                     [
                         egui::pos2(x, rect.rect.top()),
                         egui::pos2(x, rect.rect.bottom()),
                     ],
-                    egui::Stroke::new(2.0, grid_color),
+                    egui::Stroke::new(line_width * 0.5, grid_color),
                 );
             }
 
             for j in -100..=100 {
-                let y = center.y + j as f32 * GRID_SCALE;
+                let y = center.y + j as f32 * self.grid_scale;
 
                 painter.line_segment(
                     [
                         egui::pos2(rect.rect.left(), y),
                         egui::pos2(rect.rect.right(), y),
                     ],
-                    egui::Stroke::new(2.0, grid_color),
+                    egui::Stroke::new(line_width * 0.5, grid_color),
                 );
             }
 
@@ -276,7 +288,10 @@ impl eframe::App for MyApp {
                 let (tx, ty) = self.punkty[*b];
 
                 while (x - tx).abs() > 0.1 || (y - ty).abs() > 0.1 {
-                    let start = egui::pos2(center.x + x * GRID_SCALE, center.y - y * GRID_SCALE);
+                    let start = egui::pos2(
+                        center.x + x * self.grid_scale,
+                        center.y - y * self.grid_scale,
+                    );
 
                     let dx = tx - x;
                     let dy = ty - y;
@@ -290,9 +305,15 @@ impl eframe::App for MyApp {
                         y += dy.signum();
                     }
 
-                    let end = egui::pos2(center.x + x * GRID_SCALE, center.y - y * GRID_SCALE);
+                    let end = egui::pos2(
+                        center.x + x * self.grid_scale,
+                        center.y - y * self.grid_scale,
+                    );
 
-                    painter.line_segment([start, end], egui::Stroke::new(4.0, egui::Color32::BLUE));
+                    painter.line_segment(
+                        [start, end],
+                        egui::Stroke::new(line_width, egui::Color32::BLUE),
+                    );
                 }
             }
 
@@ -308,8 +329,11 @@ impl eframe::App for MyApp {
                 };
 
                 painter.circle_filled(
-                    egui::pos2(center.x + px * GRID_SCALE, center.y - py * GRID_SCALE),
-                    10.0,
+                    egui::pos2(
+                        center.x + px * self.grid_scale,
+                        center.y - py * self.grid_scale,
+                    ),
+                    point_radius,
                     color,
                 );
             }
@@ -320,10 +344,10 @@ impl eframe::App for MyApp {
 
             painter.circle_filled(
                 egui::pos2(
-                    center.x + self.x * GRID_SCALE,
-                    center.y - self.y * GRID_SCALE,
+                    center.x + self.x * self.grid_scale,
+                    center.y - self.y * self.grid_scale,
                 ),
-                8.0,
+                player_radius,
                 egui::Color32::WHITE,
             );
         });
