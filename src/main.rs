@@ -1,5 +1,7 @@
 use eframe::egui;
 use eframe::egui::Key;
+use std::fs;
+use std::path::Path;
 //use std::fmt::format;
 use serde::{Deserialize, Serialize};
 
@@ -67,6 +69,20 @@ struct Node {
 struct Edge {
     from: usize,
     to: usize,
+
+    numer: Option<i32>, // jeśli brak → nieprzypisane
+    meta: Option<String>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+struct SaveData {
+    punkty: Vec<Node>,
+    linie: LiniaPakiet,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct LiniaPakiet {
+    przypisane: std::collections::HashMap<i32, Vec<Edge>>,
+    nieprzypisane: Vec<Edge>,
 }
 // const MAPA_STARTOWA_JSON: &str = r#"
 // [
@@ -78,11 +94,7 @@ struct Edge {
 //   { "id": 5, "x": -2, "y": -0, "meta": null }
 // ]
 // "#;
-const MAPA_STARTOWA_JSON: &str = r#"
-[
-  
-]
-"#;
+const SAVE_FILE: &str = "mapa.json";
 struct MyApp {
     x: f32,
     y: f32,
@@ -103,7 +115,9 @@ struct MyApp {
 
 impl MyApp {
     fn new() -> Self {
-        let nodes = Self::load_from_json(MAPA_STARTOWA_JSON);
+        let data = Self::load_file();
+        let nodes = data.punkty;
+        let linie = data.linie;
 
         let next_id = nodes.iter().map(|n| n.id).max().unwrap_or(0) + 1;
 
@@ -115,7 +129,14 @@ impl MyApp {
 
             next_id,
 
-            linie: Vec::new(),
+            linie: {
+                let mut all = Vec::new();
+                for (_, v) in linie.przypisane {
+                    all.extend(v);
+                }
+                all.extend(linie.nieprzypisane);
+                all
+            },
 
             wybrany: None,
 
@@ -163,6 +184,8 @@ impl MyApp {
             self.linie.push(Edge {
                 from: start,
                 to: id,
+                numer: None,
+                meta: None,
             });
 
             self.wybrany = None;
@@ -196,8 +219,29 @@ impl MyApp {
             self.y += dy * step;
         }
     }
-    fn load_from_json(json: &str) -> Vec<Node> {
-        serde_json::from_str(json).unwrap_or_else(|_| Vec::new())
+    fn load_file() -> SaveData {
+        if let Ok(content) = fs::read_to_string(SAVE_FILE) {
+            serde_json::from_str(&content).unwrap_or(SaveData {
+                punkty: Vec::new(),
+                linie: LiniaPakiet {
+                    przypisane: std::collections::HashMap::new(),
+                    nieprzypisane: Vec::new(),
+                },
+            })
+        } else {
+            SaveData {
+                punkty: Vec::new(),
+                linie: LiniaPakiet {
+                    przypisane: std::collections::HashMap::new(),
+                    nieprzypisane: Vec::new(),
+                },
+            }
+        }
+    }
+
+    fn save_file(&self) {
+        let json = self.export_json();
+        let _ = fs::write(SAVE_FILE, json);
     }
     fn add_point(&mut self, x: f32, y: f32) {
         const EPS: f32 = 0.001;
@@ -233,9 +277,41 @@ impl MyApp {
         );
     }
     fn export_json(&self) -> String {
-        let filtered: Vec<&Node> = self.punkty.iter().filter(|n| n.node_type == 1).collect();
+        let mut przypisane: std::collections::HashMap<i32, Vec<Edge>> =
+            std::collections::HashMap::new();
 
-        serde_json::to_string_pretty(&filtered).unwrap()
+        let mut nieprzypisane: Vec<Edge> = Vec::new();
+
+        for e in &self.linie {
+            if let Some(num) = e.numer {
+                przypisane.entry(num).or_default().push(e.clone());
+            } else {
+                nieprzypisane.push(e.clone());
+            }
+        }
+
+        let data = SaveData {
+            punkty: self.punkty.clone(),
+            linie: LiniaPakiet {
+                przypisane,
+                nieprzypisane,
+            },
+        };
+
+        serde_json::to_string_pretty(&data).unwrap()
+    }
+    fn import_json(&mut self, json: &str) {
+        if let Ok(data) = serde_json::from_str::<SaveData>(json) {
+            self.punkty = data.punkty;
+
+            self.linie.clear();
+
+            for (_, vec) in &data.linie.przypisane {
+                self.linie.extend(vec.clone());
+            }
+
+            self.linie.extend(data.linie.nieprzypisane);
+        }
     }
 }
 
@@ -481,8 +557,12 @@ impl eframe::App for MyApp {
                     self.grid_scale = (self.grid_scale - 5.0).max(5.0);
                 }
                 if ui.button("Z").clicked() {
-                    println!("=== JSON MAPA ===");
-                    println!("{}", self.export_json());
+                    self.save_file();
+                }
+                if ui.button("W").clicked() {
+                    if let Ok(content) = std::fs::read_to_string(SAVE_FILE) {
+                        self.import_json(&content);
+                    }
                 }
             });
 
