@@ -62,6 +62,11 @@ struct Node {
 
     meta: Option<String>,
 }
+#[derive(Clone, Serialize, Deserialize)]
+struct Edge {
+    from: usize,
+    to: usize,
+}
 // const MAPA_STARTOWA_JSON: &str = r#"
 // [
 //   { "id": 0, "x": -7, "y": 6, "meta": null },
@@ -74,90 +79,7 @@ struct Node {
 // "#;
 const MAPA_STARTOWA_JSON: &str = r#"
 [
-  {
-    "id": 0,
-    "x": -7.0,
-    "y": 6.0,
-    "node_type": 1,
-    "name": "N0",
-    "location": "user",
-    "color": [
-      0.0,
-      1.5,
-      1.0
-    ],
-    "meta": null
-  },
-  {
-    "id": 1,
-    "x": 0.0,
-    "y": 0.0,
-    "node_type": 1,
-    "name": "N1",
-    "location": "user",
-    "color": [
-      0.0,
-      0.5,
-      1.0
-    ],
-    "meta": null
-  },
-  {
-    "id": 2,
-    "x": 3.0,
-    "y": -0.0,
-    "node_type": 1,
-    "name": "N2",
-    "location": "user",
-    "color": [
-      0.0,
-      0.5,
-      1.0
-    ],
-    "meta": null
-  },
-  {
-    "id": 3,
-    "x": 2.0,
-    "y": -2.0,
-    "node_type": 1,
-    "name": "N3",
-    "location": "user",
-    "color": [
-      0.0,
-      0.5,
-      1.0
-    ],
-    "meta": null
-  },
-  {
-    "id": 4,
-    "x": 1.0,
-    "y": 2.0,
-    "node_type": 1,
-    "name": "N4",
-    "location": "user",
-    "color": [
-      0.0,
-      0.5,
-      1.0
-    ],
-    "meta": null
-  },
-  {
-    "id": 5,
-    "x": 3.0,
-    "y": 2.0,
-    "node_type": 1,
-    "name": "N5",
-    "location": "user",
-    "color": [
-      0.0,
-      0.5,
-      1.0
-    ],
-    "meta": null
-  }
+  
 ]
 "#;
 struct MyApp {
@@ -166,7 +88,7 @@ struct MyApp {
 
     punkty: Vec<Node>,
     next_id: usize,
-    linie: Vec<(usize, usize)>,
+    linie: Vec<Edge>,
 
     wybrany: Option<usize>,
     tryb_linii: bool,
@@ -494,7 +416,10 @@ impl eframe::App for MyApp {
                 if let Some((id, _)) = best {
                     if let Some(start) = self.wybrany {
                         if start != id {
-                            self.linie.push((start, id));
+                            self.linie.push(Edge {
+                                from: start,
+                                to: id,
+                            });
                         }
                         self.wybrany = None;
                     } else {
@@ -538,9 +463,11 @@ impl eframe::App for MyApp {
             // ==========================================
             // LINIE (GRID PATHFINDING)(TYLKO ID → BEZ FLOATÓW)
             // ==========================================
-            for (start_id, end_id) in &self.linie {
-                let a_node = self.punkty.iter().find(|n| n.id == *start_id);
-                let b_node = self.punkty.iter().find(|n| n.id == *end_id);
+            for edge in &self.linie {
+                let start_id = edge.from;
+                let end_id = edge.to;
+                let a_node = self.punkty.iter().find(|n| n.id == start_id);
+                let b_node = self.punkty.iter().find(|n| n.id == end_id);
 
                 // jeśli któryś punkt został usunięty
                 let (Some(a_node), Some(b_node)) = (a_node, b_node) else {
@@ -590,15 +517,19 @@ impl eframe::App for MyApp {
 
             self.hovered_node = None;
 
-            for node in &self.punkty {
-                let dx = self.x - node.x;
-                let dy = self.y - node.y;
+            if let Some(mpos) = ctx.pointer_hover_pos() {
+                let mx = (mpos.x - center.x) / self.grid_scale;
+                let my = -(mpos.y - center.y) / self.grid_scale;
 
-                let dist = (dx * dx + dy * dy).sqrt();
+                for node in &self.punkty {
+                    let dx = mx - node.x;
+                    let dy = my - node.y;
 
-                if dist < 0.6 {
-                    self.hovered_node = Some(node.id);
-                    break;
+                    // szybciej i bez sqrt
+                    if (dx * dx + dy * dy) < 0.25 {
+                        self.hovered_node = Some(node.id);
+                        break;
+                    }
                 }
             }
 
