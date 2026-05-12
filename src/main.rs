@@ -1,7 +1,7 @@
 use eframe::egui;
 use eframe::egui::Key;
+use rfd::FileDialog;
 use std::fs;
-use std::path::Path;
 //use std::fmt::format;
 use serde::{Deserialize, Serialize};
 
@@ -107,6 +107,7 @@ struct MyApp {
 
     ruch_kratkowy: bool,
     tryb_myszki: bool,
+    show_import_dialog: bool,
 
     grid_scale: f32,
     panel_width: f32,
@@ -142,6 +143,7 @@ impl MyApp {
 
             ruch_kratkowy: false,
             tryb_myszki: false,
+            show_import_dialog: false,
 
             grid_scale: 40.0,
             panel_width: 300.0,
@@ -238,11 +240,7 @@ impl MyApp {
             }
         }
     }
-
-    fn save_file(&self) {
-        let json = self.export_json();
-        let _ = fs::write(SAVE_FILE, json);
-    }
+    
     fn add_point(&mut self, x: f32, y: f32) {
         const EPS: f32 = 0.001;
         if self
@@ -313,6 +311,7 @@ impl MyApp {
             self.linie.extend(data.linie.nieprzypisane);
         }
     }
+
 }
 
 //tu chciałbym te pamięć punktów
@@ -557,12 +556,12 @@ impl eframe::App for MyApp {
                     self.grid_scale = (self.grid_scale - 5.0).max(5.0);
                 }
                 if ui.button("Z").clicked() {
-                    self.save_file();
+                    if let Some(path) = FileDialog::new().set_file_name("mapa.json").save_file() {
+                        let _ = fs::write(path, self.export_json());
+                    }
                 }
                 if ui.button("W").clicked() {
-                    if let Ok(content) = std::fs::read_to_string(SAVE_FILE) {
-                        self.import_json(&content);
-                    }
+                    self.show_import_dialog = true;
                 }
             });
 
@@ -772,6 +771,16 @@ impl eframe::App for MyApp {
                 egui::Color32::WHITE,
             );
         });
+
+        if self.show_import_dialog {
+            self.show_import_dialog = false;
+
+            if let Some(path) = FileDialog::new().add_filter("JSON", &["json"]).pick_file() {
+                if let Ok(content) = fs::read_to_string(path) {
+                    self.import_json(&content);
+                }
+            }
+        }
 
         ctx.request_repaint();
     }
