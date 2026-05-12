@@ -1,4 +1,5 @@
 use eframe::egui;
+use eframe::egui::Key;
 //use std::fmt::format;
 use serde::{Deserialize, Serialize};
 
@@ -91,7 +92,6 @@ struct MyApp {
     linie: Vec<Edge>,
 
     wybrany: Option<usize>,
-    tryb_linii: bool,
 
     ruch_kratkowy: bool,
     tryb_myszki: bool,
@@ -103,24 +103,21 @@ struct MyApp {
 
 impl MyApp {
     fn new() -> Self {
+        let nodes = Self::load_from_json(MAPA_STARTOWA_JSON);
+
+        let next_id = nodes.iter().map(|n| n.id).max().unwrap_or(0) + 1;
+
         Self {
             x: 0.0,
             y: 0.0,
 
-            punkty: Self::load_from_json(MAPA_STARTOWA_JSON)
-                .into_iter()
-                .filter(|n| n.node_type == 1)
-                .collect(),
-            next_id: Self::load_from_json(MAPA_STARTOWA_JSON)
-                .iter()
-                .map(|n| n.id)
-                .max()
-                .unwrap_or(0)
-                + 1,
+            punkty: nodes.into_iter().filter(|n| n.node_type == 1).collect(),
+
+            next_id,
+
             linie: Vec::new(),
 
             wybrany: None,
-            tryb_linii: false,
 
             ruch_kratkowy: false,
             tryb_myszki: false,
@@ -130,14 +127,84 @@ impl MyApp {
             hovered_node: None,
         }
     }
+    fn handle_selection(&mut self) {
+        let mut best: Option<(usize, f32)> = None;
+
+        for node in &self.punkty {
+            if node.node_type != 1 {
+                continue;
+            }
+
+            let dx = self.x - node.x;
+            let dy = self.y - node.y;
+            let dist = dx * dx + dy * dy;
+
+            if dist < 0.5 {
+                match best {
+                    Some((_, best_dist)) if best_dist <= dist => {}
+                    _ => best = Some((node.id, dist)),
+                }
+            }
+        }
+
+        // kliknięto poza punktem
+        let Some((id, _)) = best else {
+            return;
+        };
+
+        // odznaczenie
+        if self.wybrany == Some(id) {
+            self.wybrany = None;
+            return;
+        }
+
+        // tworzenie linii
+        if let Some(start) = self.wybrany {
+            self.linie.push(Edge {
+                from: start,
+                to: id,
+            });
+
+            self.wybrany = None;
+        } else {
+            self.wybrany = Some(id);
+        }
+    }
+    fn handle_movement(
+        &mut self,
+        ctx: &egui::Context,
+        key: egui::Key,
+        arrow: egui::Key,
+        dx: f32,
+        dy: f32,
+        step: f32,
+    ) {
+        let active = ctx.input(|i| i.key_down(key) || i.key_down(arrow));
+
+        if !active {
+            return;
+        }
+
+        let should_move = if self.ruch_kratkowy {
+            ctx.input(|i| i.key_pressed(key) || i.key_pressed(arrow))
+        } else {
+            true
+        };
+
+        if should_move {
+            self.x += dx * step;
+            self.y += dy * step;
+        }
+    }
     fn load_from_json(json: &str) -> Vec<Node> {
         serde_json::from_str(json).unwrap_or_else(|_| Vec::new())
     }
     fn add_point(&mut self, x: f32, y: f32) {
+        const EPS: f32 = 0.001;
         if self
             .punkty
             .iter()
-            .any(|n| n.x == x && n.y == y && n.node_type == 1)
+            .any(|n| (n.x - x).abs() < EPS && (n.y - y).abs() < EPS)
         {
             return;
         }
@@ -194,53 +261,10 @@ impl eframe::App for MyApp {
 
         let step = if self.ruch_kratkowy { 1.0 } else { 2.0 };
 
-        // LEWO
-        if ctx.input(|i| i.key_down(egui::Key::A) || i.key_down(egui::Key::ArrowLeft)) {
-            if self.ruch_kratkowy {
-                if ctx.input(|i| i.key_pressed(egui::Key::A) || i.key_pressed(egui::Key::ArrowLeft))
-                {
-                    self.x -= step;
-                }
-            } else {
-                self.x -= step;
-            }
-        }
-
-        // PRAWO
-        if ctx.input(|i| i.key_down(egui::Key::D) || i.key_down(egui::Key::ArrowRight)) {
-            if self.ruch_kratkowy {
-                if ctx
-                    .input(|i| i.key_pressed(egui::Key::D) || i.key_pressed(egui::Key::ArrowRight))
-                {
-                    self.x += step;
-                }
-            } else {
-                self.x += step;
-            }
-        }
-
-        // GÓRA
-        if ctx.input(|i| i.key_down(egui::Key::W) || i.key_down(egui::Key::ArrowUp)) {
-            if self.ruch_kratkowy {
-                if ctx.input(|i| i.key_pressed(egui::Key::W) || i.key_pressed(egui::Key::ArrowUp)) {
-                    self.y += step;
-                }
-            } else {
-                self.y += step;
-            }
-        }
-
-        // DÓŁ
-        if ctx.input(|i| i.key_down(egui::Key::S) || i.key_down(egui::Key::ArrowDown)) {
-            if self.ruch_kratkowy {
-                if ctx.input(|i| i.key_pressed(egui::Key::S) || i.key_pressed(egui::Key::ArrowDown))
-                {
-                    self.y -= step;
-                }
-            } else {
-                self.y -= step;
-            }
-        }
+        self.handle_movement(ctx, Key::A, Key::ArrowLeft, -1.0, 0.0, step);
+        self.handle_movement(ctx, Key::D, Key::ArrowRight, 1.0, 0.0, step);
+        self.handle_movement(ctx, Key::W, Key::ArrowUp, 0.0, 1.0, step);
+        self.handle_movement(ctx, Key::S, Key::ArrowDown, 0.0, -1.0, step);
         // ==============================================
         // UI
         // ==============================================
@@ -273,10 +297,117 @@ impl eframe::App for MyApp {
                     .rect_filled(top_rect, 8.0, egui::Color32::from_gray(45));
 
                 ui.allocate_ui_at_rect(top_rect, |ui| {
-                    ui.label("DEBUG PANEL");
-                    ui.label(format!("Player: ({:.1}, {:.1})", self.x, self.y));
-                });
+                    ui.set_min_size(top_rect.size());
 
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false; 2])
+                        .id_source("top_panel_scroll")
+                        .show(ui, |ui| {
+                            ui.heading("WYBRANY PUNKT");
+
+                            if let Some(selected_id) = self.wybrany {
+                                if let Some(node) = self.punkty.iter().find(|n| n.id == selected_id)
+                                {
+                                    ui.separator();
+
+                                    ui.label(format!("ID: {}", node.id));
+                                    ui.label(format!("NAZWA: {}", node.name));
+
+                                    ui.label(format!("POZYCJA: ({:.1}, {:.1})", node.x, node.y));
+
+                                    ui.label(format!("TYP: {}", node.node_type));
+                                    ui.label(format!("LOKALIZACJA: {}", node.location));
+
+                                    if let Some(meta) = &node.meta {
+                                        ui.label(format!("META: {}", meta));
+                                    } else {
+                                        ui.label("META: brak");
+                                    }
+
+                                    // ======================================
+                                    // PODGLĄD LINII
+                                    // ======================================
+
+                                    if let Some(hover_id) = self.hovered_node {
+                                        if hover_id != node.id {
+                                            if let Some(target) =
+                                                self.punkty.iter().find(|n| n.id == hover_id)
+                                            {
+                                                ui.separator();
+                                                ui.heading("PODGLĄD LINII");
+
+                                                let mut x = node.x;
+                                                let mut y = node.y;
+
+                                                let tx = target.x;
+                                                let ty = target.y;
+
+                                                let mut visited = 0;
+                                                let mut crossed_nodes: Vec<String> = Vec::new();
+
+                                                let mut safety = 0;
+
+                                                while (x - tx).abs() > 0.1 || (y - ty).abs() > 0.1 {
+                                                    safety += 1;
+
+                                                    if safety > 1000 {
+                                                        break;
+                                                    }
+
+                                                    let dx = tx - x;
+                                                    let dy = ty - y;
+
+                                                    if dx.abs() >= 1.0 && dy.abs() >= 1.0 {
+                                                        x += dx.signum();
+                                                        y += dy.signum();
+                                                    } else if dx.abs() > dy.abs() {
+                                                        x += dx.signum();
+                                                    } else {
+                                                        y += dy.signum();
+                                                    }
+
+                                                    visited += 1;
+
+                                                    for other in &self.punkty {
+                                                        if other.id == node.id
+                                                            || other.id == target.id
+                                                        {
+                                                            continue;
+                                                        }
+
+                                                        if (other.x - x).abs() < 0.1
+                                                            && (other.y - y).abs() < 0.1
+                                                        {
+                                                            crossed_nodes.push(format!(
+                                                                "{} (id:{})",
+                                                                other.name, other.id
+                                                            ));
+                                                        }
+                                                    }
+                                                }
+
+                                                ui.label(format!("DŁUGOŚĆ: {} kratek", visited));
+
+                                                if crossed_nodes.is_empty() {
+                                                    ui.label("PRZECINANE PUNKTY: brak");
+                                                } else {
+                                                    ui.label("PRZECINANE PUNKTY:");
+
+                                                    for name in crossed_nodes {
+                                                        ui.label(format!("• {}", name));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    ui.label("Brak zaznaczonego punktu");
+                                }
+                            } else {
+                                ui.label("Brak zaznaczonego punktu");
+                            }
+                        });
+                });
                 // =========================
                 // DOLNA SEKCJA (INFO O NODE)
                 // =========================
@@ -289,18 +420,25 @@ impl eframe::App for MyApp {
                     .rect_filled(bottom_rect, 8.0, egui::Color32::from_gray(35));
 
                 ui.allocate_ui_at_rect(bottom_rect, |ui| {
-                    ui.label("INFO:");
+                    ui.set_min_size(top_rect.size()); // KLUCZOWE
 
-                    if let Some(node) = hovered_info {
-                        ui.separator();
-                        ui.label(format!("ID: {}", node.id));
-                        ui.label(format!("NAME: {}", node.name));
-                        ui.label(format!("X: {:.1} Y: {:.1}", node.x, node.y));
-                        ui.label(format!("TYPE: {}", node.node_type));
-                        ui.label(format!("LOCATION: {}", node.location));
-                    } else {
-                        ui.label("Brak obiektu pod kursorem");
-                    }
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false; 2])
+                        .id_source("bottom_panel_scroll")
+                        .show(ui, |ui| {
+                            ui.label("INFO:");
+
+                            if let Some(node) = hovered_info {
+                                ui.separator();
+                                ui.label(format!("ID: {}", node.id));
+                                ui.label(format!("NAME: {}", node.name));
+                                ui.label(format!("X: {:.1} Y: {:.1}", node.x, node.y));
+                                ui.label(format!("TYPE: {}", node.node_type));
+                                ui.label(format!("LOCATION: {}", node.location));
+                            } else {
+                                ui.label("Brak obiektu pod kursorem");
+                            }
+                        });
                 });
             });
 
@@ -375,61 +513,43 @@ impl eframe::App for MyApp {
                     self.y = gy.round();
                 }
 
+                // LPM -> tworzenie punktu
                 if ctx.input(|i| i.pointer.primary_clicked()) {
                     self.add_point(self.x, self.y);
                 }
 
+                // PPM -> zaznaczanie / linie
                 if ctx.input(|i| i.pointer.secondary_clicked()) {
-                    self.tryb_linii = true;
+                    self.handle_selection();
                 }
             }
-
             // ==========================================
-            // TRYB ŁĄCZENIA PUNKTÓW
+            // OBSŁUGA ENTERA / ŁĄCZENIA PUNKTÓW
             // ==========================================
 
-            if ctx.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Slash)) {
-                self.tryb_linii = true;
-            }
+            if !self.tryb_myszki {
+                if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    let mut found = false;
 
-            if self.tryb_linii {
-                let mut best: Option<(usize, f32)> = None;
+                    for node in &self.punkty {
+                        let dx = self.x - node.x;
+                        let dy = self.y - node.y;
 
-                for node in &self.punkty {
-                    if node.node_type != 1 {
-                        continue;
-                    }
-
-                    let dx = self.x - node.x;
-                    let dy = self.y - node.y;
-                    let dist = dx * dx + dy * dy;
-
-                    if dist < 0.5 {
-                        // tolerancja kliknięcia
-                        match best {
-                            Some((_, best_dist)) if best_dist <= dist => {}
-                            _ => best = Some((node.id, dist)),
+                        if (dx * dx + dy * dy) < 0.5 {
+                            found = true;
+                            break;
                         }
                     }
-                }
 
-                if let Some((id, _)) = best {
-                    if let Some(start) = self.wybrany {
-                        if start != id {
-                            self.linie.push(Edge {
-                                from: start,
-                                to: id,
-                            });
-                        }
-                        self.wybrany = None;
+                    // pusty obszar -> dodaj punkt
+                    if !found {
+                        self.add_point(self.x, self.y);
                     } else {
-                        self.wybrany = Some(id);
+                        // punkt -> zaznacz / połącz
+                        self.handle_selection();
                     }
-
-                    self.tryb_linii = false;
                 }
             }
-
             // ==========================================
             // KRATKA (TŁO)
             // ==========================================
@@ -481,7 +601,13 @@ impl eframe::App for MyApp {
                 let ty = b_node.y;
 
                 // rysowanie „po kratce”
+                let mut safety = 0;
                 while (x - tx).abs() > 0.1 || (y - ty).abs() > 0.1 {
+                    safety += 1;
+                    if safety > 1000 {
+                        break;
+                    }
+
                     let start = egui::pos2(
                         center.x + x * self.grid_scale,
                         center.y - y * self.grid_scale,
@@ -517,19 +643,14 @@ impl eframe::App for MyApp {
 
             self.hovered_node = None;
 
-            if let Some(mpos) = ctx.pointer_hover_pos() {
-                let mx = (mpos.x - center.x) / self.grid_scale;
-                let my = -(mpos.y - center.y) / self.grid_scale;
+            for node in &self.punkty {
+                let dx = self.x - node.x;
+                let dy = self.y - node.y;
 
-                for node in &self.punkty {
-                    let dx = mx - node.x;
-                    let dy = my - node.y;
-
-                    // szybciej i bez sqrt
-                    if (dx * dx + dy * dy) < 0.25 {
-                        self.hovered_node = Some(node.id);
-                        break;
-                    }
+                // dystans od białej kropki
+                if (dx * dx + dy * dy) < 0.25 {
+                    self.hovered_node = Some(node.id);
+                    break;
                 }
             }
 
