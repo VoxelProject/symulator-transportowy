@@ -52,16 +52,112 @@ struct Node {
     id: usize,
     x: f32,
     y: f32,
+
+    node_type: u8, // 1 = normalny, 2 = ignorowany
+
+    name: String,
+    location: String,
+
+    color: [f32; 3],
+
     meta: Option<String>,
 }
+// const MAPA_STARTOWA_JSON: &str = r#"
+// [
+//   { "id": 0, "x": -7, "y": 6, "meta": null },
+//   { "id": 1, "x": -4, "y": -0, "meta": null },
+//   { "id": 2, "x": 5, "y": 3, "meta": null },
+//   { "id": 3, "x": -3, "y": -2, "meta": null },
+//   { "id": 4, "x": 2, "y": 4, "meta": null },
+//   { "id": 5, "x": -2, "y": -0, "meta": null }
+// ]
+// "#;
 const MAPA_STARTOWA_JSON: &str = r#"
 [
-  { "id": 0, "x": -7, "y": 6, "meta": null },
-  { "id": 1, "x": -4, "y": -0, "meta": null },
-  { "id": 2, "x": 5, "y": 3, "meta": null },
-  { "id": 3, "x": -3, "y": -2, "meta": null },
-  { "id": 4, "x": 2, "y": 4, "meta": null },
-  { "id": 5, "x": -2, "y": -0, "meta": null }
+  {
+    "id": 0,
+    "x": -7.0,
+    "y": 6.0,
+    "node_type": 1,
+    "name": "N0",
+    "location": "user",
+    "color": [
+      0.0,
+      1.5,
+      1.0
+    ],
+    "meta": null
+  },
+  {
+    "id": 1,
+    "x": 0.0,
+    "y": 0.0,
+    "node_type": 1,
+    "name": "N1",
+    "location": "user",
+    "color": [
+      0.0,
+      0.5,
+      1.0
+    ],
+    "meta": null
+  },
+  {
+    "id": 2,
+    "x": 3.0,
+    "y": -0.0,
+    "node_type": 1,
+    "name": "N2",
+    "location": "user",
+    "color": [
+      0.0,
+      0.5,
+      1.0
+    ],
+    "meta": null
+  },
+  {
+    "id": 3,
+    "x": 2.0,
+    "y": -2.0,
+    "node_type": 1,
+    "name": "N3",
+    "location": "user",
+    "color": [
+      0.0,
+      0.5,
+      1.0
+    ],
+    "meta": null
+  },
+  {
+    "id": 4,
+    "x": 1.0,
+    "y": 2.0,
+    "node_type": 1,
+    "name": "N4",
+    "location": "user",
+    "color": [
+      0.0,
+      0.5,
+      1.0
+    ],
+    "meta": null
+  },
+  {
+    "id": 5,
+    "x": 3.0,
+    "y": 2.0,
+    "node_type": 1,
+    "name": "N5",
+    "location": "user",
+    "color": [
+      0.0,
+      0.5,
+      1.0
+    ],
+    "meta": null
+  }
 ]
 "#;
 struct MyApp {
@@ -80,6 +176,7 @@ struct MyApp {
 
     grid_scale: f32,
     panel_width: f32,
+    hovered_node: Option<usize>,
 }
 
 impl MyApp {
@@ -88,8 +185,16 @@ impl MyApp {
             x: 0.0,
             y: 0.0,
 
-            punkty: Self::load_from_json(MAPA_STARTOWA_JSON),
-            next_id: 0,
+            punkty: Self::load_from_json(MAPA_STARTOWA_JSON)
+                .into_iter()
+                .filter(|n| n.node_type == 1)
+                .collect(),
+            next_id: Self::load_from_json(MAPA_STARTOWA_JSON)
+                .iter()
+                .map(|n| n.id)
+                .max()
+                .unwrap_or(0)
+                + 1,
             linie: Vec::new(),
 
             wybrany: None,
@@ -100,19 +205,29 @@ impl MyApp {
 
             grid_scale: 40.0,
             panel_width: 300.0,
+            hovered_node: None,
         }
     }
     fn load_from_json(json: &str) -> Vec<Node> {
         serde_json::from_str(json).unwrap_or_else(|_| Vec::new())
     }
     fn add_point(&mut self, x: f32, y: f32) {
-        if self.punkty.iter().any(|n| n.x == x && n.y == y) {
+        if self
+            .punkty
+            .iter()
+            .any(|n| n.x == x && n.y == y && n.node_type == 1)
+        {
             return;
         }
+
         let node = Node {
             id: self.next_id,
             x,
             y,
+            node_type: 1,
+            name: format!("N{}", self.next_id),
+            location: "user".to_string(),
+            color: [0.0, 0.5, 1.0],
             meta: None,
         };
 
@@ -129,7 +244,9 @@ impl MyApp {
         );
     }
     fn export_json(&self) -> String {
-        serde_json::to_string_pretty(&self.punkty).unwrap()
+        let filtered: Vec<&Node> = self.punkty.iter().filter(|n| n.node_type == 1).collect();
+
+        serde_json::to_string_pretty(&filtered).unwrap()
     }
 }
 
@@ -205,33 +322,26 @@ impl eframe::App for MyApp {
         // ==============================================
         // UI
         // ==============================================
+        let hovered_info = self
+            .hovered_node
+            .and_then(|id| self.punkty.iter().find(|n| n.id == id));
+
         egui::SidePanel::right("right_panel")
             .resizable(false)
             .exact_width(self.panel_width)
-            .frame(
-                egui::Frame::side_top_panel(&ctx.style())
-                    .inner_margin(0.0)
-                    .outer_margin(0.0),
-            )
             .show(ctx, |ui| {
-                // ======================================
-                // TŁO PANELU = domyślne tło aplikacji
-                // ======================================
                 let panel_rect = ui.available_rect_before_wrap();
 
                 let margin = 10.0;
-                let spacing = margin;
+                let spacing = 10.0;
 
-                // obszar po marginesach
                 let content_rect = panel_rect.shrink(margin);
 
-                // wysokość sekcji
                 let section_height = (content_rect.height() - spacing) / 2.0;
 
-                // ======================================
+                // =========================
                 // GÓRNA SEKCJA
-                // ======================================
-
+                // =========================
                 let top_rect = egui::Rect::from_min_size(
                     content_rect.min,
                     egui::vec2(content_rect.width(), section_height),
@@ -240,10 +350,14 @@ impl eframe::App for MyApp {
                 ui.painter()
                     .rect_filled(top_rect, 8.0, egui::Color32::from_gray(45));
 
-                // ======================================
-                // DOLNA SEKCJA
-                // ======================================
+                ui.allocate_ui_at_rect(top_rect, |ui| {
+                    ui.label("DEBUG PANEL");
+                    ui.label(format!("Player: ({:.1}, {:.1})", self.x, self.y));
+                });
 
+                // =========================
+                // DOLNA SEKCJA (INFO O NODE)
+                // =========================
                 let bottom_rect = egui::Rect::from_min_size(
                     egui::pos2(content_rect.min.x, top_rect.max.y + spacing),
                     egui::vec2(content_rect.width(), section_height),
@@ -251,6 +365,21 @@ impl eframe::App for MyApp {
 
                 ui.painter()
                     .rect_filled(bottom_rect, 8.0, egui::Color32::from_gray(35));
+
+                ui.allocate_ui_at_rect(bottom_rect, |ui| {
+                    ui.label("INFO:");
+
+                    if let Some(node) = hovered_info {
+                        ui.separator();
+                        ui.label(format!("ID: {}", node.id));
+                        ui.label(format!("NAME: {}", node.name));
+                        ui.label(format!("X: {:.1} Y: {:.1}", node.x, node.y));
+                        ui.label(format!("TYPE: {}", node.node_type));
+                        ui.label(format!("LOCATION: {}", node.location));
+                    } else {
+                        ui.label("Brak obiektu pod kursorem");
+                    }
+                });
             });
 
         // ==============================================
@@ -342,19 +471,37 @@ impl eframe::App for MyApp {
             }
 
             if self.tryb_linii {
+                let mut best: Option<(usize, f32)> = None;
+
                 for node in &self.punkty {
-                    if (self.x - node.x).abs() < 0.1 && (self.y - node.y).abs() < 0.1 {
-                        if let Some(start) = self.wybrany {
-                            if start != node.id {
-                                self.linie.push((start, node.id));
-                            }
-                            self.wybrany = None;
-                            self.tryb_linii = false;
-                        } else {
-                            self.wybrany = Some(node.id);
-                            self.tryb_linii = false;
+                    if node.node_type != 1 {
+                        continue;
+                    }
+
+                    let dx = self.x - node.x;
+                    let dy = self.y - node.y;
+                    let dist = dx * dx + dy * dy;
+
+                    if dist < 0.5 {
+                        // tolerancja kliknięcia
+                        match best {
+                            Some((_, best_dist)) if best_dist <= dist => {}
+                            _ => best = Some((node.id, dist)),
                         }
                     }
+                }
+
+                if let Some((id, _)) = best {
+                    if let Some(start) = self.wybrany {
+                        if start != id {
+                            self.linie.push((start, id));
+                        }
+                        self.wybrany = None;
+                    } else {
+                        self.wybrany = Some(id);
+                    }
+
+                    self.tryb_linii = false;
                 }
             }
 
@@ -389,16 +536,24 @@ impl eframe::App for MyApp {
             }
 
             // ==========================================
-            // LINIE (GRID PATHFINDING)
+            // LINIE (GRID PATHFINDING)(TYLKO ID → BEZ FLOATÓW)
             // ==========================================
+            for (start_id, end_id) in &self.linie {
+                let a_node = self.punkty.iter().find(|n| n.id == *start_id);
+                let b_node = self.punkty.iter().find(|n| n.id == *end_id);
 
-            for (a, b) in &self.linie {
-                let mut x = self.punkty[*a].x;
-                let mut y = self.punkty[*a].y;
+                // jeśli któryś punkt został usunięty
+                let (Some(a_node), Some(b_node)) = (a_node, b_node) else {
+                    continue;
+                };
 
-                let tx = self.punkty[*b].x;
-                let ty = self.punkty[*b].y;
+                let mut x = a_node.x;
+                let mut y = a_node.y;
 
+                let tx = b_node.x;
+                let ty = b_node.y;
+
+                // rysowanie „po kratce”
                 while (x - tx).abs() > 0.1 || (y - ty).abs() > 0.1 {
                     let start = egui::pos2(
                         center.x + x * self.grid_scale,
@@ -433,11 +588,33 @@ impl eframe::App for MyApp {
             // PUNKTY
             // ==========================================
 
+            self.hovered_node = None;
+
             for node in &self.punkty {
-                let color = if self.wybrany == Some(node.id) {
+                let dx = self.x - node.x;
+                let dy = self.y - node.y;
+
+                let dist = (dx * dx + dy * dy).sqrt();
+
+                if dist < 0.6 {
+                    self.hovered_node = Some(node.id);
+                    break;
+                }
+            }
+
+            for node in &self.punkty {
+                if node.node_type != 1 {
+                    continue;
+                }
+
+                let color = if Some(node.id) == self.wybrany {
                     egui::Color32::RED
                 } else {
-                    egui::Color32::BLUE
+                    egui::Color32::from_rgb(
+                        (node.color[0] * 255.0) as u8,
+                        (node.color[1] * 255.0) as u8,
+                        (node.color[2] * 255.0) as u8,
+                    )
                 };
 
                 painter.circle_filled(
