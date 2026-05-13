@@ -49,14 +49,19 @@ fn main() -> eframe::Result<()> {
 /// ======================================================
 /// STAN APLIKACJI
 /// ======================================================
-
+#[derive(PartialEq, Clone, Copy)]
+enum BuildMode {
+    Tramwaje,
+    Autobusy,
+    Kolej,
+}
 #[derive(Clone, Serialize, Deserialize)]
 struct Node {
     id: usize,
     x: f32,
     y: f32,
 
-    node_type: u8, // 1 = normalny, 2 = ignorowany
+    node_type: u8, // 1 = punkt, 2 = loop
 
     name: String,
     location: String,
@@ -94,6 +99,7 @@ struct MyApp {
     ruch_kratkowy: bool,
     tryb_myszki: bool,
     show_import_dialog: bool,
+    build_mode: BuildMode,
 
     grid_scale: f32,
     panel_width: f32,
@@ -121,6 +127,7 @@ impl MyApp {
             ruch_kratkowy: false,
             tryb_myszki: false,
             show_import_dialog: false,
+            build_mode: BuildMode::Tramwaje,
 
             grid_scale: 40.0,
             panel_width: 300.0,
@@ -131,10 +138,6 @@ impl MyApp {
         let mut best: Option<(usize, f32)> = None;
 
         for node in &self.punkty {
-            if node.node_type != 1 {
-                continue;
-            }
-
             let dx = self.x - node.x;
             let dy = self.y - node.y;
             let dist = dx * dx + dy * dy;
@@ -240,6 +243,36 @@ impl MyApp {
 
         self.punkty.push(node);
     }
+    fn add_loop(&mut self, x: f32, y: f32) {
+        const EPS: f32 = 0.001;
+
+        if self
+            .punkty
+            .iter()
+            .any(|n| (n.x - x).abs() < EPS && (n.y - y).abs() < EPS)
+        {
+            return;
+        }
+
+        let node = Node {
+            id: self.next_id,
+            x,
+            y,
+
+            node_type: 2,
+
+            name: format!("L{}", self.next_id),
+            location: "loop".to_string(),
+
+            color: [1.0, 0.8, 0.0],
+
+            meta: None,
+        };
+
+        self.next_id += 1;
+
+        self.punkty.push(node);
+    }
     fn export_json(&self) -> String {
         // Tworzymy czystą strukturę do zapisu
         let data = SaveData {
@@ -271,7 +304,10 @@ impl eframe::App for MyApp {
         if ctx.input(|i| i.key_pressed(egui::Key::Space)) {
             self.ruch_kratkowy = !self.ruch_kratkowy;
         }
-
+        // tworzenie pętli tylko poza trybem myszy
+        if !self.tryb_myszki && ctx.input(|i| i.key_pressed(egui::Key::Num2)) {
+            self.add_loop(self.x, self.y);
+        }
         // ==============================================
         // RUCH POSTACI (POPRAWIONY)
         // ==============================================
@@ -349,75 +385,71 @@ impl eframe::App for MyApp {
                                     // PODGLĄD LINII
                                     // ======================================
 
-                                    if let Some(hover_id) = self.hovered_node {
-                                        if hover_id != node.id {
-                                            if let Some(target) =
-                                                self.punkty.iter().find(|n| n.id == hover_id)
-                                            {
-                                                ui.separator();
-                                                ui.heading("PODGLĄD LINII");
+                                    if let Some(hover_id) = self.hovered_node
+                                        && hover_id != node.id
+                                        && let Some(target) =
+                                            self.punkty.iter().find(|n| n.id == hover_id)
+                                    {
+                                        ui.separator();
+                                        ui.heading("PODGLĄD LINII");
 
-                                                let mut x = node.x;
-                                                let mut y = node.y;
+                                        let mut x = node.x;
+                                        let mut y = node.y;
 
-                                                let tx = target.x;
-                                                let ty = target.y;
+                                        let tx = target.x;
+                                        let ty = target.y;
 
-                                                let mut visited = 0;
-                                                let mut crossed_nodes: Vec<String> = Vec::new();
+                                        let mut visited = 0;
+                                        let mut crossed_nodes: Vec<String> = Vec::new();
 
-                                                let mut safety = 0;
+                                        let mut safety = 0;
 
-                                                while (x - tx).abs() > 0.1 || (y - ty).abs() > 0.1 {
-                                                    safety += 1;
+                                        while (x - tx).abs() > 0.1 || (y - ty).abs() > 0.1 {
+                                            safety += 1;
 
-                                                    if safety > 1000 {
-                                                        break;
-                                                    }
+                                            if safety > 1000 {
+                                                break;
+                                            }
 
-                                                    let dx = tx - x;
-                                                    let dy = ty - y;
+                                            let dx = tx - x;
+                                            let dy = ty - y;
 
-                                                    if dx.abs() >= 1.0 && dy.abs() >= 1.0 {
-                                                        x += dx.signum();
-                                                        y += dy.signum();
-                                                    } else if dx.abs() > dy.abs() {
-                                                        x += dx.signum();
-                                                    } else {
-                                                        y += dy.signum();
-                                                    }
+                                            if dx.abs() >= 1.0 && dy.abs() >= 1.0 {
+                                                x += dx.signum();
+                                                y += dy.signum();
+                                            } else if dx.abs() > dy.abs() {
+                                                x += dx.signum();
+                                            } else {
+                                                y += dy.signum();
+                                            }
 
-                                                    visited += 1;
+                                            visited += 1;
 
-                                                    for other in &self.punkty {
-                                                        if other.id == node.id
-                                                            || other.id == target.id
-                                                        {
-                                                            continue;
-                                                        }
-
-                                                        if (other.x - x).abs() < 0.1
-                                                            && (other.y - y).abs() < 0.1
-                                                        {
-                                                            crossed_nodes.push(format!(
-                                                                "{} (id:{})",
-                                                                other.name, other.id
-                                                            ));
-                                                        }
-                                                    }
+                                            for other in &self.punkty {
+                                                if other.id == node.id || other.id == target.id {
+                                                    continue;
                                                 }
 
-                                                ui.label(format!("DŁUGOŚĆ: {} kratek", visited));
-
-                                                if crossed_nodes.is_empty() {
-                                                    ui.label("PRZECINANE PUNKTY: brak");
-                                                } else {
-                                                    ui.label("PRZECINANE PUNKTY:");
-
-                                                    for name in crossed_nodes {
-                                                        ui.label(format!("• {}", name));
-                                                    }
+                                                if (other.x - x).abs() < 0.1
+                                                    && (other.y - y).abs() < 0.1
+                                                {
+                                                    crossed_nodes.push(format!(
+                                                        "{} (id:{})",
+                                                        other.name, other.id
+                                                    ));
                                                 }
+                                            }
+                                        }
+
+                                        ui.label(format!("DŁUGOŚĆ: {} kratek", visited));
+
+                                        if crossed_nodes.is_empty() {
+                                            ui.label("PRZECINANE PUNKTY: brak");
+                                        } else {
+                                            ui.label("PRZECINANE PUNKTY:");
+
+                                            for name in crossed_nodes {
+                                                ui.label(format!("• {}", name));
                                             }
                                         }
                                     }
@@ -468,32 +500,44 @@ impl eframe::App for MyApp {
         // ==============================================
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Symulator tramwaju");
-
-            // ------------------------------------------
-            // PRZYCISKI
-            // ------------------------------------------
+            // ==========================================
+            // GÓRNY PASEK 1: FUNKCJE / GLOBALNE OPCJE
+            // ==========================================
 
             ui.horizontal(|ui| {
-                if ui.button("D").clicked() {
-                    self.add_point(self.x, self.y);
+                ui.heading("Symulator Transportu Publicznego");
+
+                ui.separator();
+
+                if ui.button("Zapisz").clicked()
+                    && let Some(path) = FileDialog::new().set_file_name("mapa.json").save_file()
+                {
+                    let _ = fs::write(path, self.export_json());
                 }
 
-                if ui.button("M").clicked() {
+                if ui.button("Wczytaj").clicked() {
+                    self.show_import_dialog = true;
+                }
+
+                if ui.button("Tryb Myszy").clicked() {
                     self.tryb_myszki = !self.tryb_myszki;
 
-                    // po wyjściu z trybu myszki wróć do środka
                     if !self.tryb_myszki {
                         self.x = 0.0;
                         self.y = 0.0;
                     }
                 }
 
+                ui.separator();
+
                 ui.label(if self.ruch_kratkowy {
                     "TRYB: kratkowy"
                 } else {
                     "TRYB: płynny"
                 });
+
+                ui.separator();
+
                 if ui.button("+").clicked() {
                     self.grid_scale += 5.0;
                 }
@@ -501,13 +545,57 @@ impl eframe::App for MyApp {
                 if ui.button("-").clicked() {
                     self.grid_scale = (self.grid_scale - 5.0).max(5.0);
                 }
-                if ui.button("Z").clicked() {
-                    if let Some(path) = FileDialog::new().set_file_name("mapa.json").save_file() {
-                        let _ = fs::write(path, self.export_json());
-                    }
+            });
+
+            // ==========================================
+            // GÓRNY PASEK 2: TRYB BUDOWANIA
+            // ==========================================
+
+            ui.horizontal(|ui| {
+                // ==========================================
+                // JEDEN PRZYCISK - ZMIANA TRYBU
+                // ==========================================
+
+                let (text, color) = match self.build_mode {
+                    BuildMode::Tramwaje => ("Tramwaje", egui::Color32::from_rgb(0, 120, 255)),
+                    BuildMode::Autobusy => ("Autobusy", egui::Color32::WHITE),
+                    BuildMode::Kolej => ("Kolej", egui::Color32::from_rgb(0, 200, 0)),
+                };
+
+                let button = egui::Button::new(text).fill(color);
+
+                if ui.add(button).clicked() {
+                    self.build_mode = match self.build_mode {
+                        BuildMode::Tramwaje => BuildMode::Autobusy,
+                        BuildMode::Autobusy => BuildMode::Kolej,
+                        BuildMode::Kolej => BuildMode::Tramwaje,
+                    };
                 }
-                if ui.button("W").clicked() {
-                    self.show_import_dialog = true;
+
+                ui.separator();
+
+                // ==========================================
+                // NARZĘDZIA ZALEŻNE OD TRYBU
+                // ==========================================
+
+                match self.build_mode {
+                    BuildMode::Tramwaje => {
+                        if ui.button("Dodaj Punkt").clicked() {
+                            self.add_point(self.x, self.y);
+                        }
+
+                        if ui.button("Dodaj Pętle").clicked() {
+                            self.add_loop(self.x, self.y);
+                        }
+                    }
+
+                    BuildMode::Autobusy => {
+                        ui.label("TODO: Autobusy");
+                    }
+
+                    BuildMode::Kolej => {
+                        ui.label("TODO: Kolej");
+                    }
                 }
             });
 
@@ -555,27 +643,25 @@ impl eframe::App for MyApp {
             // OBSŁUGA ENTERA / ŁĄCZENIA PUNKTÓW
             // ==========================================
 
-            if !self.tryb_myszki {
-                if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    let mut found = false;
+            if !self.tryb_myszki && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+                let mut found = false;
 
-                    for node in &self.punkty {
-                        let dx = self.x - node.x;
-                        let dy = self.y - node.y;
+                for node in &self.punkty {
+                    let dx = self.x - node.x;
+                    let dy = self.y - node.y;
 
-                        if (dx * dx + dy * dy) < 0.5 {
-                            found = true;
-                            break;
-                        }
+                    if (dx * dx + dy * dy) < 0.5 {
+                        found = true;
+                        break;
                     }
+                }
 
-                    // pusty obszar -> dodaj punkt
-                    if !found {
-                        self.add_point(self.x, self.y);
-                    } else {
-                        // punkt -> zaznacz / połącz
-                        self.handle_selection();
-                    }
+                // pusty obszar -> dodaj punkt
+                if !found {
+                    self.add_point(self.x, self.y);
+                } else {
+                    // punkt -> zaznacz / połącz
+                    self.handle_selection();
                 }
             }
             // ==========================================
@@ -677,9 +763,10 @@ impl eframe::App for MyApp {
             }
 
             for node in &self.punkty {
-                if node.node_type != 1 {
-                    continue;
-                }
+                let pos = egui::pos2(
+                    center.x + node.x * self.grid_scale,
+                    center.y - node.y * self.grid_scale,
+                );
 
                 let color = if Some(node.id) == self.wybrany {
                     egui::Color32::RED
@@ -691,14 +778,19 @@ impl eframe::App for MyApp {
                     )
                 };
 
-                painter.circle_filled(
-                    egui::pos2(
-                        center.x + node.x * self.grid_scale,
-                        center.y - node.y * self.grid_scale,
-                    ),
-                    point_radius,
-                    color,
-                );
+                match node.node_type {
+                    // NORMALNY PUNKT
+                    1 => {
+                        painter.circle_filled(pos, point_radius, color);
+                    }
+
+                    // LOOP
+                    2 => {
+                        painter.circle_stroke(pos, point_radius, egui::Stroke::new(3.0, color));
+                    }
+
+                    _ => {}
+                }
             }
 
             // ==========================================
@@ -718,10 +810,10 @@ impl eframe::App for MyApp {
         if self.show_import_dialog {
             self.show_import_dialog = false;
 
-            if let Some(path) = FileDialog::new().add_filter("JSON", &["json"]).pick_file() {
-                if let Ok(content) = fs::read_to_string(path) {
-                    self.import_json(&content);
-                }
+            if let Some(path) = FileDialog::new().add_filter("JSON", &["json"]).pick_file()
+                && let Ok(content) = fs::read_to_string(path)
+            {
+                self.import_json(&content);
             }
         }
 
